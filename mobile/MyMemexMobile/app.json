@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "MyMemexMobile",
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Memex to access your camera to capture notes."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Memex to access your photos to upload existing images.",
+          "savePhotosPermission": "Allow Memex to save photos to your library."
+        }
+      ]
+    ],
+    "slug": "MyMemexMobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
