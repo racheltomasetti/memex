@@ -13,7 +13,9 @@ import {
   ScrollView,
   FlatList,
   Modal,
+  Platform,
 } from "react-native";
+// import DateTimePicker from '@react-native-community/datetimepicker';
 import { StatusBar } from "expo-status-bar";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
@@ -274,6 +276,8 @@ function CameraScreen({
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [facing, setFacing] = useState<"front" | "back">("back");
   const [isRecording, setIsRecording] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const cameraRef = useRef<CameraView>(null);
 
@@ -438,6 +442,7 @@ function CameraScreen({
             .split(",")
             .map((tag) => tag.trim())
             .filter(Boolean),
+          created_at: selectedDate.toISOString(),
         },
       ]);
 
@@ -460,6 +465,8 @@ function CameraScreen({
     setTags("");
     setShowSaveModal(false);
     setIsRecording(false);
+    setSelectedDate(new Date());
+    setShowDatePicker(false);
   };
 
   const signOut = async () => {
@@ -608,6 +615,93 @@ function CameraScreen({
               value={tags}
               onChangeText={setTags}
             />
+
+            <View style={styles.dateSection}>
+              <Text style={styles.dateLabel}>Entry Date</Text>
+              <TouchableOpacity
+                style={styles.dateButton}
+                onPress={() => setShowDatePicker(true)}
+              >
+                <Text style={styles.dateButtonText}>
+                  {selectedDate.toLocaleDateString()}{" "}
+                  {selectedDate.toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </Text>
+                <Text style={styles.dateButtonIcon}>📅</Text>
+              </TouchableOpacity>
+            </View>
+
+            {showDatePicker && (
+              <View style={styles.datePickerContainer}>
+                <View style={styles.datePickerHeader}>
+                  <Text style={styles.datePickerTitle}>Select Date & Time</Text>
+                  <TouchableOpacity
+                    style={styles.datePickerCloseButton}
+                    onPress={() => setShowDatePicker(false)}
+                  >
+                    <Text style={styles.datePickerCloseText}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.datePickerContent}>
+                  <View style={styles.dateInputRow}>
+                    <Text style={styles.dateInputLabel}>Date:</Text>
+                    <TextInput
+                      style={styles.dateInput}
+                      value={selectedDate.toLocaleDateString()}
+                      placeholder="MM/DD/YYYY"
+                      placeholderTextColor="#666"
+                      editable={false}
+                    />
+                  </View>
+                  <View style={styles.dateInputRow}>
+                    <Text style={styles.dateInputLabel}>Time:</Text>
+                    <TextInput
+                      style={styles.dateInput}
+                      value={selectedDate.toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                      placeholder="HH:MM"
+                      placeholderTextColor="#666"
+                      editable={false}
+                    />
+                  </View>
+                  <View style={styles.dateQuickButtons}>
+                    <TouchableOpacity
+                      style={styles.dateQuickButton}
+                      onPress={() => {
+                        const now = new Date();
+                        setSelectedDate(now);
+                      }}
+                    >
+                      <Text style={styles.dateQuickButtonText}>Now</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.dateQuickButton}
+                      onPress={() => {
+                        const yesterday = new Date();
+                        yesterday.setDate(yesterday.getDate() - 1);
+                        setSelectedDate(yesterday);
+                      }}
+                    >
+                      <Text style={styles.dateQuickButtonText}>Yesterday</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.dateQuickButton}
+                      onPress={() => {
+                        const lastWeek = new Date();
+                        lastWeek.setDate(lastWeek.getDate() - 7);
+                        setSelectedDate(lastWeek);
+                      }}
+                    >
+                      <Text style={styles.dateQuickButtonText}>Last Week</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            )}
 
             <View style={styles.saveButtons}>
               <TouchableOpacity
@@ -1316,5 +1410,113 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginRight: 8,
     marginBottom: 4,
+  },
+  // Date picker styles
+  dateSection: {
+    marginBottom: 20,
+  },
+  dateLabel: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 10,
+  },
+  dateButton: {
+    backgroundColor: "#333",
+    borderRadius: 10,
+    padding: 15,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#444",
+  },
+  dateButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    flex: 1,
+  },
+  dateButtonIcon: {
+    fontSize: 20,
+    marginLeft: 10,
+  },
+  datePicker: {
+    backgroundColor: "#333",
+    borderRadius: 10,
+    marginBottom: 20,
+  },
+  datePickerContainer: {
+    backgroundColor: "#222",
+    borderRadius: 15,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "#333",
+  },
+  datePickerHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
+  },
+  datePickerTitle: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "600",
+  },
+  datePickerCloseButton: {
+    backgroundColor: "#007AFF",
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  datePickerCloseText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  datePickerContent: {
+    padding: 15,
+  },
+  dateInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 15,
+  },
+  dateInputLabel: {
+    color: "#fff",
+    fontSize: 16,
+    width: 60,
+    marginRight: 10,
+  },
+  dateInput: {
+    flex: 1,
+    backgroundColor: "#333",
+    color: "#fff",
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: "#444",
+  },
+  dateQuickButtons: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 10,
+  },
+  dateQuickButton: {
+    backgroundColor: "#007AFF",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    flex: 1,
+    marginHorizontal: 2,
+    alignItems: "center",
+  },
+  dateQuickButtonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
   },
 });
