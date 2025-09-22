@@ -11,7 +11,7 @@ interface Capture {
   id: string;
   user_id: string;
   media_url: string;
-  media_type: "image" | "video" | "audio";
+  media_type: "image" | "video" | "audio" | "image_with_audio";
   note: string | null;
   tags: string[] | null;
   created_at: string;
@@ -20,6 +20,11 @@ interface Capture {
   embedding: number[] | null;
   processing_status: "pending" | "processing" | "completed" | "failed";
   processed_at: string | null;
+  // New audio fields
+  audio_url?: string | null;
+  transcription_confidence?: number | null;
+  transcription_method?: "audio" | "ocr" | "hybrid" | null;
+  // Existing temporal fields
   extracted_date: string | null;
   extracted_time: string | null;
   extracted_datetime: string | null;
@@ -353,21 +358,27 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div className="flex gap-2">
-                {["all", "image", "video", "audio"].map((filter) => (
-                  <button
-                    key={filter}
-                    onClick={() => setSelectedFilter(filter as any)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      selectedFilter === filter
-                        ? "bg-indigo-600 text-white"
-                        : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                    }`}
-                  >
-                    {filter === "all"
-                      ? "All"
-                      : filter.charAt(0).toUpperCase() + filter.slice(1) + "s"}
-                  </button>
-                ))}
+                {["all", "image", "video", "audio", "image_with_audio"].map(
+                  (filter) => (
+                    <button
+                      key={filter}
+                      onClick={() => setSelectedFilter(filter as any)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        selectedFilter === filter
+                          ? "bg-indigo-600 text-white"
+                          : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                      }`}
+                    >
+                      {filter === "all"
+                        ? "All"
+                        : filter === "image_with_audio"
+                        ? "Image+Audio"
+                        : filter.charAt(0).toUpperCase() +
+                          filter.slice(1) +
+                          "s"}
+                    </button>
+                  )
+                )}
               </div>
             </div>
           </div>

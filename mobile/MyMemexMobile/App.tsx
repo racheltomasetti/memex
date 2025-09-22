@@ -23,6 +23,7 @@ import * as MediaLibrary from "expo-media-library";
 import { createClient } from "@supabase/supabase-js";
 import { Image } from "expo-image";
 import * as FileSystem from "expo-file-system/legacy";
+import { Audio } from "expo-av";
 // import * as VideoThumbnails from "expo-video-thumbnails";
 import "react-native-url-polyfill/auto";
 
@@ -34,7 +35,7 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 const { width, height } = Dimensions.get("window");
 
 type AuthState = "loading" | "unauthenticated" | "authenticated";
-type MediaType = "image" | "video" | "audio";
+type MediaType = "image" | "video" | "audio" | "image_with_audio";
 type AppScreen = "camera" | "library" | "captures";
 
 interface Capture {
@@ -45,6 +46,10 @@ interface Capture {
   note: string | null;
   tags: string[] | null;
   created_at: string;
+  // New audio fields
+  audio_url?: string | null;
+  transcription_confidence?: number | null;
+  transcription_method?: "audio" | "ocr" | "hybrid" | null;
 }
 
 export default function App() {
@@ -279,6 +284,14 @@ function CameraScreen({
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
 
+  // Audio recording state
+  const [audioRecording, setAudioRecording] = useState<Audio.Recording | null>(
+    null
+  );
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [audioUri, setAudioUri] = useState<string | null>(null);
+  const [audioPermission, setAudioPermission] = useState<boolean | null>(null);
+
   const cameraRef = useRef<CameraView>(null);
 
   const takePicture = async () => {
@@ -352,6 +365,94 @@ function CameraScreen({
     }
   };
 
+  // Audio recording functions
+  const requestAudioPermission = async () => {
+    try {
+      const { status } = await Audio.requestPermissionsAsync();
+      setAudioPermission(status === "granted");
+      return status === "granted";
+    } catch (error) {
+      console.error("Error requesting audio permission:", error);
+      setAudioPermission(false);
+      return false;
+    }
+  };
+
+  const startAudioRecording = async () => {
+    try {
+      if (audioPermission === null) {
+        const hasPermission = await requestAudioPermission();
+        if (!hasPermission) {
+          Alert.alert(
+            "Permission Required",
+            "Audio recording permission is required to record audio."
+          );
+          return;
+        }
+      }
+
+      if (audioPermission === false) {
+        Alert.alert(
+          "Permission Denied",
+          "Audio recording permission is required to record audio."
+        );
+        return;
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+
+      setAudioRecording(recording);
+      setIsRecordingAudio(true);
+    } catch (error) {
+      console.error("Failed to start recording:", error);
+      Alert.alert("Error", "Failed to start audio recording");
+    }
+  };
+
+  const stopAudioRecording = async () => {
+    try {
+      if (!audioRecording) return;
+
+      setIsRecordingAudio(false);
+      await audioRecording.stopAndUnloadAsync();
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+      });
+
+      const uri = audioRecording.getURI();
+      setAudioUri(uri);
+      setAudioRecording(null);
+    } catch (error) {
+      console.error("Failed to stop recording:", error);
+      Alert.alert("Error", "Failed to stop audio recording");
+    }
+  };
+
+  const playAudioRecording = async () => {
+    try {
+      if (!audioUri) return;
+
+      const { sound } = await Audio.Sound.createAsync({ uri: audioUri });
+      await sound.playAsync();
+    } catch (error) {
+      console.error("Failed to play audio:", error);
+      Alert.alert("Error", "Failed to play audio recording");
+    }
+  };
+
+  const deleteAudioRecording = () => {
+    setAudioUri(null);
+    setAudioRecording(null);
+    setIsRecordingAudio(false);
+  };
+
   const uploadToSupabase = async (mediaUri: string, type: MediaType) => {
     try {
       const {
@@ -368,6 +469,8 @@ function CameraScreen({
             return { ext: "mp4", contentType: "video/mp4" };
           case "audio":
             return { ext: "m4a", contentType: "audio/m4a" };
+          case "image_with_audio":
+            return { ext: "jpg", contentType: "image/jpeg" };
           default:
             return { ext: "jpg", contentType: "image/jpeg" };
         }
@@ -428,15 +531,27 @@ function CameraScreen({
       } = await supabase.auth.getUser();
       if (!user) throw new Error("User not authenticated");
 
-      // Upload media to Supabase
+      // Upload image to Supabase
       const mediaUrl = await uploadToSupabase(capturedMedia, mediaType);
+
+      // Upload audio if available
+      let audioUrl: string | null = null;
+      if (audioUri) {
+        audioUrl = await uploadToSupabase(audioUri, "audio");
+      }
+
+      // Determine final media type
+      const finalMediaType: MediaType = audioUri
+        ? "image_with_audio"
+        : mediaType;
 
       // Save metadata to database
       const { error } = await supabase.from("captures").insert([
         {
           user_id: user.id,
           media_url: mediaUrl,
-          media_type: mediaType,
+          media_type: finalMediaType,
+          audio_url: audioUrl,
           note: note,
           tags: tags
             .split(",")
@@ -467,6 +582,10 @@ function CameraScreen({
     setIsRecording(false);
     setSelectedDate(new Date());
     setShowDatePicker(false);
+    // Reset audio recording state
+    setAudioUri(null);
+    setAudioRecording(null);
+    setIsRecordingAudio(false);
   };
 
   const signOut = async () => {
@@ -615,6 +734,58 @@ function CameraScreen({
               value={tags}
               onChangeText={setTags}
             />
+
+            {/* Audio Recording Section */}
+            <View style={styles.audioSection}>
+              <Text style={styles.audioLabel}>Audio Recording</Text>
+              <Text style={styles.audioSubtext}>
+                Record yourself reading the text for better transcription
+                accuracy
+              </Text>
+
+              <View style={styles.audioControls}>
+                {!audioUri ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.audioButton,
+                      isRecordingAudio && styles.audioButtonRecording,
+                    ]}
+                    onPress={
+                      isRecordingAudio
+                        ? stopAudioRecording
+                        : startAudioRecording
+                    }
+                  >
+                    <Text style={styles.audioButtonText}>
+                      {isRecordingAudio
+                        ? "⏹️ Stop Recording"
+                        : "🎤 Start Recording"}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.audioPlaybackControls}>
+                    <TouchableOpacity
+                      style={styles.audioPlayButton}
+                      onPress={playAudioRecording}
+                    >
+                      <Text style={styles.audioButtonText}>▶️ Play</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.audioDeleteButton}
+                      onPress={deleteAudioRecording}
+                    >
+                      <Text style={styles.audioButtonText}>🗑️ Delete</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              {isRecordingAudio && (
+                <View style={styles.recordingIndicator}>
+                  <Text style={styles.recordingText}>🔴 Recording...</Text>
+                </View>
+              )}
+            </View>
 
             <View style={styles.dateSection}>
               <Text style={styles.dateLabel}>Entry Date</Text>
@@ -992,6 +1163,39 @@ function CapturesScreen({
             ]}
           >
             Videos
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.filterButton,
+            selectedFilter === "audio" && styles.filterButtonActive,
+          ]}
+          onPress={() => setSelectedFilter("audio")}
+        >
+          <Text
+            style={[
+              styles.filterButtonText,
+              selectedFilter === "audio" && styles.filterButtonTextActive,
+            ]}
+          >
+            Audio
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.filterButton,
+            selectedFilter === "image_with_audio" && styles.filterButtonActive,
+          ]}
+          onPress={() => setSelectedFilter("image_with_audio")}
+        >
+          <Text
+            style={[
+              styles.filterButtonText,
+              selectedFilter === "image_with_audio" &&
+                styles.filterButtonTextActive,
+            ]}
+          >
+            Image+Audio
           </Text>
         </TouchableOpacity>
       </View>
@@ -1517,6 +1721,68 @@ const styles = StyleSheet.create({
   dateQuickButtonText: {
     color: "#fff",
     fontSize: 12,
+    fontWeight: "600",
+  },
+  // Audio recording styles
+  audioSection: {
+    marginBottom: 20,
+  },
+  audioLabel: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 8,
+  },
+  audioSubtext: {
+    color: "#666",
+    fontSize: 14,
+    marginBottom: 15,
+    lineHeight: 20,
+  },
+  audioControls: {
+    alignItems: "center",
+  },
+  audioButton: {
+    backgroundColor: "#007AFF",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    minWidth: 150,
+  },
+  audioButtonRecording: {
+    backgroundColor: "#ff3b30",
+  },
+  audioButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  audioPlaybackControls: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  audioPlayButton: {
+    backgroundColor: "#34c759",
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  audioDeleteButton: {
+    backgroundColor: "#ff3b30",
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  recordingIndicator: {
+    marginTop: 10,
+    alignItems: "center",
+  },
+  recordingText: {
+    color: "#ff3b30",
+    fontSize: 14,
     fontWeight: "600",
   },
 });
