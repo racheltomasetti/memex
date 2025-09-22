@@ -57,13 +57,6 @@ export default async function handler(req, res) {
         message: "Capture already processed",
         extractedText: capture.extracted_text,
         hasEmbedding: !!capture.embedding,
-        temporalInfo: {
-          extractedDate: capture.extracted_date,
-          extractedTime: capture.extracted_time,
-          extractedDatetime: capture.extracted_datetime,
-          confidence: capture.date_confidence,
-          temporalContext: capture.temporal_context,
-        },
       });
     }
 

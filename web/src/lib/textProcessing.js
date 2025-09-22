@@ -2,7 +2,6 @@
 
 import vision from "@google-cloud/vision";
 import OpenAI from "openai";
-import chrono from "chrono-node";
 import path from "path";
 
 const openai = new OpenAI({
@@ -175,126 +174,6 @@ export async function extractTextWithConfidence(imageUrl) {
   }
 }
 
-// ===== TEMPORAL EXTRACTION FROM TEXT =====
-
-const DATE_PATTERNS = [
-  // Full dates - MM/DD/YYYY, DD/MM/YYYY, YYYY/MM/DD
-  /\b(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})\b/g,
-  /\b(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})\b/g,
-
-  // Month names with dates
-  /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s*(\d{2,4})\b/gi,
-  /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+(\d{1,2}),?\s*(\d{2,4})\b/gi,
-
-  // Day of week with dates
-  /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*,?\s*(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s*(\d{2,4})\b/gi,
-];
-
-const TIME_PATTERNS = [
-  /\b(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)\b/g,
-  /\b(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM|am|pm)\b/g,
-  /\b(\d{1,2}):(\d{2})\b/g, // 24-hour format
-  /\b(\d{1,2})\s*(o'clock|oclock)\b/gi,
-];
-
-const TEMPORAL_CONTEXT_PATTERNS = [
-  /\b(today|yesterday|tomorrow|tonight|this morning|this afternoon|this evening)\b/gi,
-  /\b(last (week|month|year|night|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/gi,
-  /\b(next (week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/gi,
-  /\b(\d+)\s*(days?|weeks?|months?)\s*(ago|from now)\b/gi,
-  /\b(morning|afternoon|evening|night)\s*(pages|journal|notes|thoughts|reflection)\b/gi,
-];
-
-export function extractTemporalInfo(text, captureDate = new Date()) {
-  if (!text || typeof text !== "string") {
-    return null;
-  }
-
-  const results = {
-    extractedDate: null,
-    extractedTime: null,
-    extractedDatetime: null,
-    confidence: 0,
-    rawMatches: [],
-    temporalContext: {},
-  };
-
-  try {
-    // Use chrono-node for sophisticated date parsing
-    const chronoResults = chrono.parse(text, captureDate);
-
-    if (chronoResults.length > 0) {
-      const bestMatch = chronoResults[0];
-
-      results.extractedDatetime = bestMatch.start.date();
-      results.extractedDate = bestMatch.start
-        .date()
-        .toISOString()
-        .split("T")[0];
-
-      if (bestMatch.start.get("hour") !== null) {
-        const time = bestMatch.start.date().toTimeString().split(" ")[0];
-        results.extractedTime = time;
-      }
-
-      results.confidence = calculateConfidence(bestMatch, text);
-      results.rawMatches.push({
-        text: bestMatch.text,
-        index: bestMatch.index,
-        method: "chrono",
-      });
-    }
-
-    // Extract temporal context regardless of date extraction
-    results.temporalContext = extractTemporalContext(text);
-
-    return results.extractedDate ||
-      results.extractedTime ||
-      Object.keys(results.temporalContext).length > 0
-      ? results
-      : null;
-  } catch (error) {
-    console.error("Temporal extraction error:", error);
-    return null;
-  }
-}
-
-function extractTemporalContext(text) {
-  const context = {};
-
-  for (const pattern of TEMPORAL_CONTEXT_PATTERNS) {
-    const matches = [...text.matchAll(pattern)];
-    matches.forEach((match) => {
-      const key = match[0].toLowerCase().replace(/\s+/g, "_");
-      context[key] = {
-        text: match[0],
-        index: match.index,
-      };
-    });
-  }
-
-  return context;
-}
-
-function calculateConfidence(chronoResult, text) {
-  let confidence = 0.8; // Base confidence for chrono
-
-  if (chronoResult.text.match(/\d{4}/)) confidence += 0.1; // Has year
-  if (
-    chronoResult.text.match(
-      /\b(January|February|March|April|May|June|July|August|September|October|November|December)\b/i
-    )
-  )
-    confidence += 0.05;
-  if (chronoResult.start.get("hour") !== null) confidence += 0.05;
-
-  if (chronoResult.text.length < 5) confidence -= 0.2; // Very short match
-  if (chronoResult.text.match(/\b(today|yesterday|tomorrow)\b/i))
-    confidence -= 0.1; // Relative dates
-
-  return Math.min(1.0, Math.max(0.0, confidence));
-}
-
 // ===== VECTOR EMBEDDINGS =====
 
 export async function generateEmbedding(text) {
@@ -316,12 +195,7 @@ export async function generateEmbedding(text) {
 
 // ===== COMBINE TEXT FOR EMBEDDING =====
 
-export function combineTextForEmbedding(
-  note,
-  extractedText,
-  tags = [],
-  temporalContext = {}
-) {
+export function combineTextForEmbedding(note, extractedText, tags = []) {
   const parts = [];
 
   if (note && note.trim()) {
@@ -334,13 +208,6 @@ export function combineTextForEmbedding(
 
   if (tags && tags.length > 0) {
     parts.push(`Tags: ${tags.join(", ")}`);
-  }
-
-  if (temporalContext && Object.keys(temporalContext).length > 0) {
-    const contextText = Object.values(temporalContext)
-      .map((ctx) => ctx.text)
-      .join(" ");
-    parts.push(`Temporal context: ${contextText}`);
   }
 
   return parts.join("\n\n");
@@ -384,20 +251,10 @@ export async function processCapture(
       console.log("No image URL provided, skipping OCR");
     }
 
-    // Step 2: Extract temporal information from ALL the text
-    const allText = [note, extractedText].filter(Boolean).join("\n\n");
-    const temporalInfo = extractTemporalInfo(allText);
-    console.log("Temporal info:", temporalInfo);
+    // Step 2: Combine everything for embedding
+    const combinedText = combineTextForEmbedding(note, extractedText, tags);
 
-    // Step 3: Combine everything for embedding
-    const combinedText = combineTextForEmbedding(
-      note,
-      extractedText,
-      tags,
-      temporalInfo?.temporalContext
-    );
-
-    // Step 4: Generate embedding if we have content
+    // Step 3: Generate embedding if we have content
     let embedding = null;
     if (combinedText.trim().length > 0) {
       console.log("Generating embedding...");
@@ -412,7 +269,7 @@ export async function processCapture(
       console.log("No text content for embedding");
     }
 
-    // Step 5: Update database with ALL results
+    // Step 4: Update database with results
     const updateData = {
       extracted_text: extractedText, // Store ALL extracted text
       processing_status: "completed",
@@ -421,29 +278,6 @@ export async function processCapture(
 
     if (embedding) {
       updateData.embedding = embedding;
-    }
-
-    // Add temporal information as metadata
-    if (temporalInfo) {
-      if (temporalInfo.extractedDate) {
-        updateData.extracted_date = temporalInfo.extractedDate;
-      }
-      if (temporalInfo.extractedTime) {
-        updateData.extracted_time = temporalInfo.extractedTime;
-      }
-      if (temporalInfo.extractedDatetime) {
-        updateData.extracted_datetime =
-          temporalInfo.extractedDatetime.toISOString();
-      }
-      if (temporalInfo.confidence) {
-        updateData.date_confidence = temporalInfo.confidence;
-      }
-      if (
-        temporalInfo.temporalContext &&
-        Object.keys(temporalInfo.temporalContext).length > 0
-      ) {
-        updateData.temporal_context = temporalInfo.temporalContext;
-      }
     }
 
     const { error } = await supabase
@@ -457,7 +291,6 @@ export async function processCapture(
       success: true,
       extractedText,
       hasEmbedding: !!embedding,
-      temporalInfo,
     };
   } catch (error) {
     console.error("Processing error:", error);
@@ -505,9 +338,7 @@ export async function fullTextSearch(query, userId, supabase) {
   try {
     const { data, error } = await supabase
       .from("captures")
-      .select(
-        "id, media_url, note, extracted_text, tags, created_at, extracted_date, extracted_time"
-      )
+      .select("id, media_url, note, extracted_text, tags, created_at")
       .textSearch("search_vector", query)
       .eq("user_id", userId)
       .eq("processing_status", "completed")
